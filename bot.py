@@ -69,6 +69,7 @@ default_settings = {
     "no_project_text": "⏳ Hozircha ovoz berish boshlanmagan.\n\nFaol loyihalar paydo bo'lganda shu yerda ko'rinadi.",
     "warning_text": "⚠️ **OGOHLANTIRISH:**\nOvoz berishda faqat haqiqiy raqam va to'g'ri screenshot yuboring! Qalbaki screenshotlar bloklanadi.",
     "warning_photo": "",
+    "warning_photo_2": "",
     "referral_bonus": "1000",
     "vote_price": "5000",
     "min_withdraw": "10000"
@@ -116,6 +117,7 @@ class AdminStates(StatesGroup):
     change_no_project_text = State()
     change_warning_text = State()
     change_warning_photo = State()
+    change_warning_photo_2 = State()
     change_referral_bonus = State()
     change_vote_price = State()
     change_min_withdraw = State()
@@ -159,7 +161,8 @@ def admin_settings_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📝 Start Matni"), KeyboardButton(text="🖼 Start Rasmi")],
-            [KeyboardButton(text="⚠️ Ogohlantirish Matni"), KeyboardButton(text="🖼 Ogohlantirish Rasmi")],
+            [KeyboardButton(text="⚠️ Ogohlantirish Matni")],
+            [KeyboardButton(text="🖼 Ogohlantirish Rasmi 1"), KeyboardButton(text="🖼 Ogohlantirish Rasmi 2")],
             [KeyboardButton(text="📭 Loyiha yo'q Matni")],
             [KeyboardButton(text="💰 Referal Summa"), KeyboardButton(text="💵 Ovoz Puli")],
             [KeyboardButton(text="💳 Minimal Yechish")],
@@ -280,7 +283,7 @@ async def referral_handler(message: types.Message):
     )
 
 # =========================================================
-# VOICE / PROJECTS (OGOHLANTIRISH + RASM MANTIQLARI)
+# VOICE / PROJECTS (IKKALA RASMNI SAQLASH VA CHIQARISH)
 # =========================================================
 
 @dp.message(F.text == "💠 Ovoz berish")
@@ -330,8 +333,8 @@ async def save_phone_and_show_projects(message, phone, state):
     projects = cursor.fetchall()
 
     warning_text = get_setting("warning_text")
-    warning_photo = get_setting("warning_photo")
-    start_photo = get_setting("start_photo")
+    photo_1 = get_setting("warning_photo")
+    photo_2 = get_setting("warning_photo_2")
     vote_price = get_setting("vote_price")
 
     text = f"📞 Raqamingiz: {phone}\n\n"
@@ -348,12 +351,12 @@ async def save_phone_and_show_projects(message, phone, state):
     buttons.append([InlineKeyboardButton(text="📸 Ovoz berdim — screenshot yuborish", callback_data="send_screenshot")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # 1. Agar 2 ta rasm ham bo'lsa (warning_photo + start_photo) -> Albom qilib yuboradi va ketidan matn chiqaradi
-    if warning_photo and start_photo:
+    # 1. Agarda 2 ta rasm ham saqlangan bo'lsa -> Ularni albom (media_group) shaklida chiqaradi
+    if photo_1 and photo_2:
         try:
             media = [
-                InputMediaPhoto(media=warning_photo),
-                InputMediaPhoto(media=start_photo)
+                InputMediaPhoto(media=photo_1),
+                InputMediaPhoto(media=photo_2)
             ]
             await message.answer_media_group(media=media)
             await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -361,15 +364,15 @@ async def save_phone_and_show_projects(message, phone, state):
         except Exception:
             pass
 
-    # 2. Agar faqat 1 ta rasm bo'lsa -> Rasm tagida matn va tugmalar birga chiqadi
-    elif warning_photo:
+    # 2. Agarda faqat 1-rasm bo'lsa -> Rasm captionida matn va tugma chiqadi
+    elif photo_1:
         try:
-            await message.answer_photo(photo=warning_photo, caption=text, reply_markup=keyboard, parse_mode="Markdown")
+            await message.answer_photo(photo=photo_1, caption=text, reply_markup=keyboard, parse_mode="Markdown")
             return
         except Exception:
             pass
 
-    # 3. Agar rasmlar bo'lmasa -> Shunchaki matn va tugmalar chiqadi
+    # 3. Rasm bo'lmasa -> Shunchaki matn va tugmalar
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 # =========================================================
@@ -548,12 +551,12 @@ async def change_warning_text_save(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Ogohlantirish matni yangilandi!", reply_markup=admin_settings_keyboard())
 
-# 4. Ogohlantirish Rasmi
-@dp.message(F.text == "🖼 Ogohlantirish Rasmi")
+# 4. Ogohlantirish Rasmi 1
+@dp.message(F.text == "🖼 Ogohlantirish Rasmi 1")
 async def change_warning_photo_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     await state.set_state(AdminStates.change_warning_photo)
-    await message.answer("Ogohlantirish uchun rasm yuboring (O'chirish uchun /del_photo yozing):", reply_markup=back_keyboard())
+    await message.answer("Birinchi ogohlantirish rasmini yuboring (O'chirish uchun /del_photo yozing):", reply_markup=back_keyboard())
 
 @dp.message(AdminStates.change_warning_photo)
 async def change_warning_photo_save(message: types.Message, state: FSMContext):
@@ -564,17 +567,43 @@ async def change_warning_photo_save(message: types.Message, state: FSMContext):
     if message.text == "/del_photo":
         set_setting("warning_photo", "")
         await state.clear()
-        await message.answer("✅ Ogohlantirish rasmi olib tashlandi!", reply_markup=admin_settings_keyboard())
+        await message.answer("✅ Birinchi rasm olib tashlandi!", reply_markup=admin_settings_keyboard())
         return
     if message.photo:
         photo_id = message.photo[-1].file_id
         set_setting("warning_photo", photo_id)
         await state.clear()
-        await message.answer("✅ Ogohlantirish rasmi yangilandi!", reply_markup=admin_settings_keyboard())
+        await message.answer("✅ Birinchi ogohlantirish rasmi saqlandi!", reply_markup=admin_settings_keyboard())
     else:
         await message.answer("Iltimos, rasm yuboring yoki /del_photo yozing.")
 
-# 5. Loyiha Yo'q Matni
+# 5. Ogohlantirish Rasmi 2
+@dp.message(F.text == "🖼 Ogohlantirish Rasmi 2")
+async def change_warning_photo_2_start(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    await state.set_state(AdminStates.change_warning_photo_2)
+    await message.answer("Ikkinchi ogohlantirish rasmini yuboring (O'chirish uchun /del_photo yozing):", reply_markup=back_keyboard())
+
+@dp.message(AdminStates.change_warning_photo_2)
+async def change_warning_photo_2_save(message: types.Message, state: FSMContext):
+    if message.text == "⬅️ Orqaga":
+        await state.clear()
+        await message.answer("Sozlamalar.", reply_markup=admin_settings_keyboard())
+        return
+    if message.text == "/del_photo":
+        set_setting("warning_photo_2", "")
+        await state.clear()
+        await message.answer("✅ Ikkinchi rasm olib tashlandi!", reply_markup=admin_settings_keyboard())
+        return
+    if message.photo:
+        photo_id = message.photo[-1].file_id
+        set_setting("warning_photo_2", photo_id)
+        await state.clear()
+        await message.answer("✅ Ikkinchi ogohlantirish rasmi saqlandi!", reply_markup=admin_settings_keyboard())
+    else:
+        await message.answer("Iltimos, rasm yuboring yoki /del_photo yozing.")
+
+# 6. Loyiha Yo'q Matni
 @dp.message(F.text == "📭 Loyiha yo'q Matni")
 async def change_no_project_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
@@ -591,7 +620,7 @@ async def change_no_project_save(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Matn yangilandi!", reply_markup=admin_settings_keyboard())
 
-# 6. Referal Summasi
+# 7. Referal Summasi
 @dp.message(F.text == "💰 Referal Summa")
 async def change_ref_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
@@ -611,7 +640,7 @@ async def change_ref_save(message: types.Message, state: FSMContext):
     else:
         await message.answer("Iltimos, faqat raqam kiriting!")
 
-# 7. Ovoz Puli
+# 8. Ovoz Puli
 @dp.message(F.text == "💵 Ovoz Puli")
 async def change_vote_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
@@ -631,14 +660,14 @@ async def change_vote_save(message: types.Message, state: FSMContext):
     else:
         await message.answer("Iltimos, faqat raqam kiriting!")
 
-# 8. Minimal Yechish
+# 9. Minimal Yechish
 @dp.message(F.text == "💳 Minimal Yechish")
 async def change_min_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     await state.set_state(AdminStates.change_min_withdraw)
     await message.answer("Minimal yechish summasini kiriting (masalan: 10000):", reply_markup=back_keyboard())
 
-@dp.message(AdminStates.change_min_withdraw)
+@dp.message(AdminStates.change_min_save)
 async def change_min_save(message: types.Message, state: FSMContext):
     if message.text == "⬅️ Orqaga":
         await state.clear()
