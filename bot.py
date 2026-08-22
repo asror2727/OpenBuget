@@ -280,7 +280,7 @@ async def referral_handler(message: types.Message):
     )
 
 # =========================================================
-# VOICE / PROJECTS (MEDIA GROUP INTEGRATED)
+# VOICE / PROJECTS (OGOHLANTIRISH + RASM MANTIQLARI)
 # =========================================================
 
 @dp.message(F.text == "💠 Ovoz berish")
@@ -348,7 +348,7 @@ async def save_phone_and_show_projects(message, phone, state):
     buttons.append([InlineKeyboardButton(text="📸 Ovoz berdim — screenshot yuborish", callback_data="send_screenshot")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # Agarda 2 ta rasm ham sozlangan bo'lsa (warning_photo va start_photo) ularni MediaGroup ko'rinishida yuboradi
+    # 1. Agar 2 ta rasm ham bo'lsa (warning_photo + start_photo) -> Albom qilib yuboradi va ketidan matn chiqaradi
     if warning_photo and start_photo:
         try:
             media = [
@@ -360,6 +360,8 @@ async def save_phone_and_show_projects(message, phone, state):
             return
         except Exception:
             pass
+
+    # 2. Agar faqat 1 ta rasm bo'lsa -> Rasm tagida matn va tugmalar birga chiqadi
     elif warning_photo:
         try:
             await message.answer_photo(photo=warning_photo, caption=text, reply_markup=keyboard, parse_mode="Markdown")
@@ -367,6 +369,7 @@ async def save_phone_and_show_projects(message, phone, state):
         except Exception:
             pass
 
+    # 3. Agar rasmlar bo'lmasa -> Shunchaki matn va tugmalar chiqadi
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 # =========================================================
