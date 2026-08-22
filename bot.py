@@ -327,6 +327,9 @@ async def phone_text_handler(message: types.Message, state: FSMContext):
     await save_phone_and_show_projects(message, phone, state)
 
 async def save_phone_and_show_projects(message, phone, state):
+from aiogram.types import InputMediaPhoto
+
+async def save_phone_and_show_projects(message, phone, state):
     cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, message.from_user.id))
     conn.commit()
 
@@ -334,7 +337,8 @@ async def save_phone_and_show_projects(message, phone, state):
     projects = cursor.fetchall()
 
     warning_text = get_setting("warning_text")
-    warning_photo = get_setting("warning_photo")
+    warning_photo = get_setting("warning_photo")  # Birinchi rasm ID si
+    second_photo = get_setting("start_photo")    # Ikkinchi rasm ID si (yoki o'zingiz xohlagan 2-rasm)
     vote_price = get_setting("vote_price")
 
     text = f"📞 Raqamingiz: {phone}\n\n"
@@ -351,14 +355,24 @@ async def save_phone_and_show_projects(message, phone, state):
     buttons.append([InlineKeyboardButton(text="📸 Ovoz berdim — screenshot yuborish", callback_data="send_screenshot")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    if warning_photo:
+    # Agar 2 ta rasm ham mavjud bo'lsa, ularni albom qilib birga yuboramiz
+    if warning_photo and second_photo:
         try:
-            await message.answer_photo(photo=warning_photo, caption=text, reply_markup=keyboard, parse_mode="Markdown")
+            media = [
+                InputMediaPhoto(media=warning_photo),
+                InputMediaPhoto(media=second_photo)
+            ]
+            # 2 ta rasmni albom qilib birga yuborish
+            await message.answer_media_group(media=media)
+            # Rasmlar tegidan matn va tugmalarni yuborish
+            await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
             return
         except Exception:
             pass
 
+    # Agar rasmlar bo'lmasa yoki xatolik bo'lsa, shunchaki matn va tugmalar chiqadi
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
 
 # =========================================================
 # SCREENSHOT
