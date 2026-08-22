@@ -22,6 +22,7 @@ from aiogram.types import (
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@your_channel_username") # Kanal loginingizni yozing yoki Render ENV ga qo'shing
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN topilmadi!")
@@ -210,6 +211,11 @@ def normalize_phone(phone):
         return "+998" + phone
     return None
 
+def mask_phone(phone):
+    if len(phone) >= 13:
+        return f"{phone[:6]}******"
+    return phone
+
 # =========================================================
 # START
 # =========================================================
@@ -373,7 +379,7 @@ async def save_phone_and_show_projects(message, phone, state):
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 # =========================================================
-# SCREENSHOT
+# SCREENSHOT & VERIFICATION
 # =========================================================
 
 @dp.callback_query(F.data == "send_screenshot")
@@ -387,7 +393,7 @@ async def receive_screenshot(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     cursor.execute("SELECT phone FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
-    phone = row[0] if row else "Noma'lum"
+    phone = row[0] if (row and row[0]) else "Noma'lum"
 
     cursor.execute("SELECT title FROM projects WHERE is_active = 1 ORDER BY id DESC")
     project_rows = cursor.fetchall()
@@ -396,12 +402,21 @@ async def receive_screenshot(message: types.Message, state: FSMContext):
     caption = (
         "📸 **Yangi ovoz screenshot**\n\n"
         f"👤 User ID: `{user_id}`\n"
-        f"📞 Telefon: {phone}\n"
+        f"📞 Telefon: `{phone}`\n"
         f"🎯 Faol loyihalar: {project_text or 'Yo‘q'}"
     )
 
     photo_id = message.photo[-1].file_id
-    await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, parse_mode="Markdown")
+
+    # Admin uchun tasdiqlash / bekor qilish tugmalari
+    admin_buttons = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"approve_{user_id}"),
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"reject_{user_id}")
+        ]
+    ])
+
+    await bot.send_photo(ADMIN_ID, photo=photo_id, caption=caption, reply_markup=admin_buttons, parse_mode="Markdown")
 
     await message.answer(
         "✅ Screenshot adminga yuborildi.\n\nTekshiruvdan so'ng balansingizga pul qo'shiladi.",
@@ -412,6 +427,62 @@ async def receive_screenshot(message: types.Message, state: FSMContext):
 @dp.message(UserStates.waiting_screenshot)
 async def wrong_screenshot(message: types.Message):
     await message.answer("📸 Iltimos, screenshotni rasm sifatida yuboring.")
+
+# =========================================================
+# ADMIN APPROVE / REJECT HANDLERS
+# =========================================================
+
+@dp.callback_query(F.data.startswith("approve_"))
+async def approve_vote(call: types.CallbackQuery):
+    if not is_admin(call.from_user.id): return
+    target_user_id = int(call.data.split("_")[1])
+    vote_price = int(get_setting("vote_price") or 5000)
+
+    # 1. Balansni oshirish
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (vote_price, target_user_id))
+    conn.commit()
+
+    # 2. Foydalanuvchi ma'lumotlarini olish
+    cursor.execute("SELECT phone FROM users WHERE user_id = ?", (target_user_id,))
+    row = cursor.fetchone()
+    raw_phone = row[0] if (row and row[0]) else "+998900000000"
+    masked_p = mask_phone(raw_phone)
+
+    # 3. Userga xabar yuborish
+    try:
+        await bot.send_message(target_user_id, f"🎉 Ovoz berganingiz tasdiqlandi!\n\n💰 Balansingizga +{vote_price:,} so'm qo'shildi.")
+    except Exception:
+        pass
+
+    # 4. Kanalga Otzyv yuborish
+    try:
+        review_text = (
+            "✅ **YANGI MUVAFFAQIYATLI OVOZ!**\n\n"
+            f"📞 **Raqam:** `{masked_p}`\n"
+            f"👤 **User ID:** `{target_user_id}`\n"
+            f"🗳 **Nechta ovoz:** 1 ta\n"
+            f"💵 **Ishladi:** {vote_price:,} so'm"
+        )
+        await bot.send_message(CHANNEL_ID, review_text, parse_mode="Markdown")
+    except Exception as e:
+        logging.error(f"Kanalga otzyv yuborishda xato: {e}")
+
+    await call.message.edit_caption(caption=call.message.caption + "\n\n✅ **TASDIQLANDI (Pul o'tkazildi)**")
+    await call.answer("✅ Tasdiqlandi va pul qo'shildi!")
+
+@dp.callback_query(F.data.startswith("reject_"))
+async def reject_vote(call: types.CallbackQuery):
+    if not is_admin(call.from_user.id): return
+    target_user_id = int(call.data.split("_")[1])
+
+    # Userga rad etilgani haqida xabar yuborish
+    try:
+        await bot.send_message(target_user_id, "❌ Siz yuborgan screenshot rad etildi. Qayta to'g'ri screenshot yuboring.")
+    except Exception:
+        pass
+
+    await call.message.edit_caption(caption=call.message.caption + "\n\n❌ **RAD ETILDI**")
+    await call.answer("❌ Rad etildi!")
 
 # =========================================================
 # ADMIN PANEL
@@ -657,7 +728,7 @@ async def change_vote_save(message: types.Message, state: FSMContext):
     else:
         await message.answer("Iltimos, faqat raqam kiriting!")
 
-# 9. Minimal Yechish (XATO TUZATILDI)
+# 9. Minimal Yechish
 @dp.message(F.text == "💳 Minimal Yechish")
 async def change_min_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
