@@ -13,6 +13,7 @@ from aiogram.types import (
     KeyboardButton,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InputMediaPhoto,
 )
 
 # =========================================================
@@ -62,7 +63,6 @@ CREATE TABLE IF NOT EXISTS settings (
 )
 """)
 
-# Boshlang'ich default sozlamalar
 default_settings = {
     "start_text": "Assalomu alaykum! 👋\n\n💠 OpenBudget botiga xush kelibsiz!\n\nKerakli bo'limni tanlang 👇",
     "start_photo": "",
@@ -248,7 +248,7 @@ async def back_handler(message: types.Message, state: FSMContext):
         await message.answer("Asosiy menyu.", reply_markup=main_keyboard())
 
 # =========================================================
-# BALANCE
+# BALANCE & REFERRAL
 # =========================================================
 
 @dp.message(F.text == "💵 Balansim")
@@ -262,10 +262,6 @@ async def balance_handler(message: types.Message):
         f"💰 Balansingiz: {balance:,} so'm\n"
         f"💳 Minimal yechib olish: {int(min_w):,} so'm"
     )
-
-# =========================================================
-# REFERRAL
-# =========================================================
 
 @dp.message(F.text == "👥 Referal")
 async def referral_handler(message: types.Message):
@@ -284,7 +280,7 @@ async def referral_handler(message: types.Message):
     )
 
 # =========================================================
-# VOICE / PROJECTS
+# VOICE / PROJECTS (MEDIA GROUP INTEGRATED)
 # =========================================================
 
 @dp.message(F.text == "💠 Ovoz berish")
@@ -327,9 +323,6 @@ async def phone_text_handler(message: types.Message, state: FSMContext):
     await save_phone_and_show_projects(message, phone, state)
 
 async def save_phone_and_show_projects(message, phone, state):
-from aiogram.types import InputMediaPhoto
-
-async def save_phone_and_show_projects(message, phone, state):
     cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, message.from_user.id))
     conn.commit()
 
@@ -337,8 +330,8 @@ async def save_phone_and_show_projects(message, phone, state):
     projects = cursor.fetchall()
 
     warning_text = get_setting("warning_text")
-    warning_photo = get_setting("warning_photo")  # Birinchi rasm ID si
-    second_photo = get_setting("start_photo")    # Ikkinchi rasm ID si (yoki o'zingiz xohlagan 2-rasm)
+    warning_photo = get_setting("warning_photo")
+    start_photo = get_setting("start_photo")
     vote_price = get_setting("vote_price")
 
     text = f"📞 Raqamingiz: {phone}\n\n"
@@ -355,24 +348,26 @@ async def save_phone_and_show_projects(message, phone, state):
     buttons.append([InlineKeyboardButton(text="📸 Ovoz berdim — screenshot yuborish", callback_data="send_screenshot")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # Agar 2 ta rasm ham mavjud bo'lsa, ularni albom qilib birga yuboramiz
-    if warning_photo and second_photo:
+    # Agarda 2 ta rasm ham sozlangan bo'lsa (warning_photo va start_photo) ularni MediaGroup ko'rinishida yuboradi
+    if warning_photo and start_photo:
         try:
             media = [
                 InputMediaPhoto(media=warning_photo),
-                InputMediaPhoto(media=second_photo)
+                InputMediaPhoto(media=start_photo)
             ]
-            # 2 ta rasmni albom qilib birga yuborish
             await message.answer_media_group(media=media)
-            # Rasmlar tegidan matn va tugmalarni yuborish
             await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
             return
         except Exception:
             pass
+    elif warning_photo:
+        try:
+            await message.answer_photo(photo=warning_photo, caption=text, reply_markup=keyboard, parse_mode="Markdown")
+            return
+        except Exception:
+            pass
 
-    # Agar rasmlar bo'lmasa yoki xatolik bo'lsa, shunchaki matn va tugmalar chiqadi
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
-
 
 # =========================================================
 # SCREENSHOT
