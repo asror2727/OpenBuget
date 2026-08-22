@@ -283,7 +283,7 @@ async def referral_handler(message: types.Message):
     )
 
 # =========================================================
-# VOICE / PROJECTS (IKKALA RASMNI SAQLASH VA CHIQARISH)
+# VOICE / PROJECTS
 # =========================================================
 
 @dp.message(F.text == "💠 Ovoz berish")
@@ -351,7 +351,6 @@ async def save_phone_and_show_projects(message, phone, state):
     buttons.append([InlineKeyboardButton(text="📸 Ovoz berdim — screenshot yuborish", callback_data="send_screenshot")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # 1. Agarda 2 ta rasm ham saqlangan bo'lsa -> Ularni albom (media_group) shaklida chiqaradi
     if photo_1 and photo_2:
         try:
             media = [
@@ -364,7 +363,6 @@ async def save_phone_and_show_projects(message, phone, state):
         except Exception:
             pass
 
-    # 2. Agarda faqat 1-rasm bo'lsa -> Rasm captionida matn va tugma chiqadi
     elif photo_1:
         try:
             await message.answer_photo(photo=photo_1, caption=text, reply_markup=keyboard, parse_mode="Markdown")
@@ -372,7 +370,6 @@ async def save_phone_and_show_projects(message, phone, state):
         except Exception:
             pass
 
-    # 3. Rasm bo'lmasa -> Shunchaki matn va tugmalar
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 # =========================================================
@@ -660,14 +657,14 @@ async def change_vote_save(message: types.Message, state: FSMContext):
     else:
         await message.answer("Iltimos, faqat raqam kiriting!")
 
-# 9. Minimal Yechish
+# 9. Minimal Yechish (XATO TUZATILDI)
 @dp.message(F.text == "💳 Minimal Yechish")
 async def change_min_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     await state.set_state(AdminStates.change_min_withdraw)
     await message.answer("Minimal yechish summasini kiriting (masalan: 10000):", reply_markup=back_keyboard())
 
-@dp.message(AdminStates.change_min_save)
+@dp.message(AdminStates.change_min_withdraw)
 async def change_min_save(message: types.Message, state: FSMContext):
     if message.text == "⬅️ Orqaga":
         await state.clear()
