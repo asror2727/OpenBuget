@@ -17,15 +17,18 @@ from aiogram.types import (
 )
 
 # =========================================================
-# SOZLAMALAR (Bu yerga ma'lumotlaringizni yozing)
+# CONFIG / SOZLAMALAR
 # =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENINGIZNI_SHUYERGA_YOZING")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5950184202"))  # Admin ID
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@kanal_username") # Otzyv kanalingiz username yoki IDsi
 
+if not BOT_TOKEN or BOT_TOKEN == "BOT_TOKENINGIZNI_SHUYERGA_YOZING":
+    logging.warning("⚠️ BOT_TOKEN o'rnatilmagan! Kod ichiga yoki Environment Variables'ga yozing.")
+
 # =========================================================
-# DATABASE
+# DATABASE SETUP
 # =========================================================
 
 conn = sqlite3.connect("openbudget_bot.db", check_same_thread=False)
@@ -85,7 +88,7 @@ def set_setting(key, value):
     conn.commit()
 
 # =========================================================
-# BOT SETUP
+# BOT & DISPATCHER INITIALIZATION
 # =========================================================
 
 logging.basicConfig(level=logging.INFO)
@@ -93,14 +96,13 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 # =========================================================
-# STATES
+# FSM STATES
 # =========================================================
 
 class UserStates(StatesGroup):
     waiting_phone = State()
     waiting_screenshot = State()
     
-    # Pul yechish state'lari
     withdraw_amount = State()
     withdraw_requisite = State()
     withdraw_confirm = State()
@@ -112,7 +114,6 @@ class AdminStates(StatesGroup):
     broadcast_photo = State()
     broadcast_text = State()
 
-    # Admin to'lov tasdiqlash state'lari
     admin_proof_photo = State()
     admin_proof_text = State()
 
@@ -157,16 +158,8 @@ def back_keyboard():
         resize_keyboard=True
     )
 
-def mask_requisite(req):
-    req_clean = req.replace(" ", "")
-    if len(req_clean) == 16 and req_clean.isdigit():
-        return f"{req_clean[:4]} **** **** {req_clean[-4:]}"
-    elif len(req_clean) >= 12:
-        return f"{req_clean[:6]}******"
-    return req
-
 # =========================================================
-# START & BACK
+# START & NAVIGATION
 # =========================================================
 
 @dp.message(CommandStart())
@@ -185,7 +178,7 @@ async def back_handler(message: types.Message, state: FSMContext):
     await message.answer("Asosiy menyu.", reply_markup=main_keyboard())
 
 # =========================================================
-# BALANS & PUL YECHISH
+# BALANS & PUL YECHISH TIZIMI
 # =========================================================
 
 @dp.message(F.text == "💵 Balansim")
@@ -310,11 +303,9 @@ async def process_withdraw_cb(call: types.CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Balansdan ayirish
     cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
 
-    # Admin so'rovini yuborish
     admin_btn = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ To'lab berdim", callback_data=f"pay_ok_{user_id}_{amount}"),
@@ -334,7 +325,7 @@ async def process_withdraw_cb(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
 
 # =========================================================
-# ADMIN TO'LOVNI TASDIQLASH / RAD ETISH
+# ADMIN TO'LOV MANTIQI (ADMIN PROOF)
 # =========================================================
 
 @dp.callback_query(F.data.startswith("pay_no_"))
@@ -342,7 +333,6 @@ async def admin_reject_pay(call: types.CallbackQuery):
     _, _, target_id, amount = call.data.split("_")
     target_id, amount = int(target_id), int(amount)
 
-    # Balansni qaytarish
     cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
     conn.commit()
 
@@ -358,7 +348,7 @@ async def admin_reject_pay(call: types.CallbackQuery):
 async def admin_approve_pay_start(call: types.CallbackQuery, state: FSMContext):
     _, _, target_id, amount = call.data.split("_")
 
-    await state.update_data(target_id=target_id, amount=amount, msg_id=call.message.message_id)
+    await state.update_data(target_id=target_id, amount=amount)
     await state.set_state(AdminStates.admin_proof_photo)
 
     await bot.send_message(
@@ -384,7 +374,6 @@ async def admin_proof_text_step(message: types.Message, state: FSMContext):
     photo_id = data["proof_photo"]
     text_to_user = message.text
 
-    # Userga chek va matnni yuborish
     try:
         await bot.send_photo(
             target_id,
@@ -395,7 +384,6 @@ async def admin_proof_text_step(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Userga chek yuborishda xato: {e}")
 
-    # Otzyv kanaliga yuborish
     try:
         review_text = (
             "💳 **MUVAFFAQIYATLI TO'LOV!**\n\n"
@@ -411,7 +399,7 @@ async def admin_proof_text_step(message: types.Message, state: FSMContext):
     await message.answer("✅ To'lov cheki foydalanuvchiga va kanalga muvaffaqiyatli yuborildi!", reply_markup=admin_keyboard())
 
 # =========================================================
-# OVOZ BERISH & SCREENSHOT HANDLERLARI
+# OVOZ BERISH
 # =========================================================
 
 @dp.message(F.text == "💠 Ovoz berish")
@@ -515,11 +503,50 @@ async def reject_vote(call: types.CallbackQuery):
     await call.answer("Rad etildi!")
 
 # =========================================================
-# BOTNI ISHGA TUSHIRISH
+# OTHER FEATURES (REFERRAL, TOP 10, ADMIN PANEL)
+# =========================================================
+
+@dp.message(F.text == "👥 Referal")
+async def referral_handler(message: types.Message):
+    me = await bot.get_me()
+    link = f"https://t.me/{me.username}?start={message.from_user.id}"
+    cursor.execute("SELECT COUNT(*) FROM users WHERE referrer_id = ?", (message.from_user.id,))
+    count = cursor.fetchone()[0]
+    ref_bonus = get_setting("referral_bonus")
+
+    await message.answer(
+        "👥 **Referal tizimi**\n\n"
+        f"🔗 Havolangiz:\n`{link}`\n\n"
+        f"👤 Taklif qilganlaringiz: {count} ta\n"
+        f"💵 Har bir taklif uchun: {int(ref_bonus):,} so'm",
+        parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "📊 Top 10")
+async def top_users(message: types.Message):
+    cursor.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10")
+    rows = cursor.fetchall()
+    text = "🏆 **TOP 10 FOYDALANUVCHILAR**\n\n"
+    for index, (uid, balance) in enumerate(rows, 1):
+        text += f"{index}. `{uid}` — {balance:,} so'm\n"
+    await message.answer(text, parse_mode="Markdown")
+
+@dp.message(Command("admin"))
+async def admin_command(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("👑 ADMIN PANEL", reply_markup=admin_keyboard())
+
+@dp.message(F.text == "❌ Admin paneldan chiqish")
+async def admin_exit(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Asosiy menyu.", reply_markup=main_keyboard())
+
+# =========================================================
+# RUN BOT
 # =========================================================
 
 async def main():
-    logging.info("Bot ishga tushdi...")
+    logging.info("OpenBudget bot ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
